@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #252839;
+        }
+
+        .load {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            display: none;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container div {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 50px;
+        }
+
+        .container div canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .container div h2 {
+            position: absolute;
+            top: -60px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 18px;
+            color: #fff;
+        }
+
+        /* loading */
+        .load h1 {
+            position: relative;
+            font-size: 60px;
+            color: transparent;
+            -webkit-text-stroke: 2px #383d52;
+        }
+
+        .load h1::before {
+            text-wrap: nowrap;
+            overflow: hidden;
+            content: attr(data-text);
+            position: absolute;
+            color: #01fe87;
+            top: 0;
+            left: 0;
+            border-right: 1px solid #01fe87;
+            animation: animate 3s linear infinite;
+        }
+
+        @keyframes animate {
+
+            0%,
+            10% {
+                width: 0;
+            }
+
+            60%,
+            80% {
+                width: 100%;
+            }
+
+            90%,
+            100% {
+                width: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container" id="container">
+        <div class="imgContainer" id="imgContainer">
+            <h2>原图</h2>
+        </div>
+        <div class="boxBlurCanvasContainer" id="boxBlurCanvasContainer">
+            <h2>均值滤波</h2>
+        </div>
+        <div class="gaussianBlurCanvasContainer" id="gaussianBlurCanvasContainer">
+            <h2>高斯滤波</h2>
+        </div>
+    </div>
+    <div class="load" id="load">
+        <h1 data-text="计算中...">计算中...</h2>
+    </div>
+</body>
+<script type="module">
+    const IMAGE_SIZE = 700;
+    const DISPLAY_SIZE = 200;
+    const load = document.getElementById("load");
+    const container = document.getElementById("container");
+    const imgContainer = document.getElementById("imgContainer");
+    const boxBlurCanvasContainer = document.getElementById("boxBlurCanvasContainer");
+    const gaussianBlurCanvasContainer = document.getElementById("gaussianBlurCanvasContainer");
+    let img = null;
+    let boxBlurCanvas = document.createElement('canvas');
+    let gaussianBlurCanvas = document.createElement('canvas');
+
+    const tasksDone = {
+        boxBlur: false,
+        gaussianBlur: false
+    };
+
+    const checkAllTasksDone = () => tasksDone.boxBlur && tasksDone.gaussianBlur;
+
+    const preLoadImg = (url) => {
+        return new Promise((res, rej) => {
+            img = new Image(DISPLAY_SIZE, DISPLAY_SIZE);
+            img.onload = () => {
+                imgContainer.appendChild(img);
+                //获取图片的二进制数据
+                res(img)
+            };
+            img.onerror = rej;
+            img.src = url;
+        })
+    }
+
+    /* 
+        获得图片矩阵：
+            1、创建一个 Canvas 元素，
+            2、将图片绘制到 Canvas 上，
+            3、获取图片像素数据
+    */
+    const getImageMatrix = (image, canvas) => {
+        canvas.width = IMAGE_SIZE;
+        canvas.height = IMAGE_SIZE;
+
+        // 获取canvas的2D上下文
+        const ctx = canvas.getContext('2d');
+
+        // 将图像绘制到canvas上
+        ctx.drawImage(image, 0, 0);
+        /* 
+            drawImage三个参数：
+                image:图像源，
+                dx:图像左上角在目标画布上的 x 坐标,
+                dy:图像左上角在目标画布上的 y 坐标
+                
+        */
+
+        // 获取图像的像素数据
+        return ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE).data;
+        /* 
+            getImageData四个参数：
+                sx: 这是要获取其像素数据区域的左上角的 x 坐标。
+                sy: 这是要获取其像素数据区域的左上角的 y 坐标。
+                sw: 这是要获取的区域的宽度。
+                sh: 这是要获取的区域的高度。
+                
+        */
+    }
+
+    /*
+        将模糊后的图片展示在HTML中：
+            1、创建和设置 Canvas 元素
+            2、将像素数据写入 Canvas
+            3、将canvas挂载到文档上
+    */
+    const showPicInDocument = (blurredMatrix, container, canvas) => {
+        // console.log(container);
+        // 沿用获矩阵是已经创建的canvas
+        const ctx = canvas.getContext('2d');
+        const imageData = new ImageData(blurredMatrix, IMAGE_SIZE, IMAGE_SIZE);
+        // 绘制图像
+        ctx.putImageData(imageData, 0, 0);
+        container.appendChild(canvas);
+    }
+
+    // 预加载图片
+    preLoadImg("./static/girl.jpeg").then((img) => {
+
+        // 创建 Worker
+        const blurWorker = new Worker('blurWorker.js');
+
+        blurWorker.onmessage = function (e) {
+            const {blurredMatrix, type} = e.data;
+
+            if (type === 'boxBlur') {
+                showPicInDocument(blurredMatrix, boxBlurCanvasContainer, boxBlurCanvas);
+                tasksDone.boxBlur = true;
+            } else if (type === 'gaussianBlur') {
+                showPicInDocument(blurredMatrix, gaussianBlurCanvasContainer, gaussianBlurCanvas);
+                tasksDone.gaussianBlur = true;
+            }
+
+            // 隐藏加载动画，显示容器
+            if (checkAllTasksDone()) {
+                load.style.display = "none";
+                container.style.display = "flex";
+            }
+        };
+
+        return blurWorker;
+
+    }).then((blurWorker) => {
+        // 均值模糊
+        const boxBlurMatrix = getImageMatrix(img, boxBlurCanvas);
+        blurWorker.postMessage({ matrix: boxBlurMatrix, type: 'boxBlur', imageSize: IMAGE_SIZE });
+
+        return blurWorker;
+    }).then((blurWorker) => {
+        // 高斯模糊
+        const gaussianBlurMatrix = getImageMatrix(img, gaussianBlurCanvas);
+        blurWorker.postMessage({ matrix: gaussianBlurMatrix, type: 'gaussianBlur', imageSize: IMAGE_SIZE });
+    })
+</script>
+
+</html>
